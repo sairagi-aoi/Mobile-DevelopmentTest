@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f6f7f2">
+    <meta name="description" content="ひとつずつ。iPhoneで手軽に使える、小さなタスク管理アプリ。">
+    <title>ひとつずつ — タスク管理</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <a class="brand" href="./" aria-label="ひとつずつ ホーム">
+          <span class="brand-icon" aria-hidden="true">✓</span>
+          <span>ひとつずつ<span class="brand-caption">TINY TASKS</span></span>
+        </a>
+        <span class="header-note">あなたのペースで。</span>
+      </header>
+
+      <main id="main">
+        <section class="intro" aria-labelledby="page-title">
+          <p class="eyebrow"><span class="date-dot" aria-hidden="true"></span><time id="today"></time></p>
+          <h1 id="page-title">今日を、<br>ひとつずつ。</h1>
+          <p class="intro-copy">頭の中の「やること」を、ここに。</p>
+        </section>
+
+        <section class="summary" aria-label="タスクの進捗">
+          <div class="summary-top">
+            <p><span id="remaining-count" class="remaining-count">0</span><span class="summary-label">件のやること</span></p>
+            <span id="progress-label" class="progress-label">0 / 0 完了</span>
+          </div>
+          <progress id="progress" max="1" value="0" aria-label="タスクの完了率"></progress>
+          <p id="summary-message" class="summary-message">小さな一歩から、はじめよう。</p>
+        </section>
+
+        <p id="storage-error" class="error-banner" role="alert" hidden></p>
+
+        <section class="tasks-section" aria-labelledby="tasks-heading">
+          <div class="section-heading">
+            <h2 id="tasks-heading">マイタスク</h2>
+            <span id="task-count" class="task-count">0件</span>
+          </div>
+          <div class="filters" role="group" aria-label="タスクの表示を切り替え">
+            <button type="button" data-filter="all" aria-pressed="true">すべて</button>
+            <button type="button" data-filter="active" aria-pressed="false">未完了</button>
+            <button type="button" data-filter="completed" aria-pressed="false">完了</button>
+          </div>
+          <ul id="task-list" class="task-list" aria-label="タスク一覧"></ul>
+          <div id="empty-state" class="empty-state">
+            <div class="empty-illustration" aria-hidden="true"><span>✓</span><i></i><i></i></div>
+            <h3 id="empty-title">やることを、ひとつ。</h3>
+            <p id="empty-copy">下の入力欄から追加してみましょう。<br>小さなことでも、大丈夫。</p>
+          </div>
+          <p class="list-hint" id="list-hint" hidden>タスク名をタップすると編集できます。</p>
+        </section>
+      </main>
+
+      <footer class="composer">
+        <form id="add-form" class="add-form">
+          <label class="sr-only" for="new-task">新しいタスク</label>
+          <input id="new-task" name="title" type="text" placeholder="次にやることは？" maxlength="200" required autocomplete="off" enterkeyhint="done" aria-describedby="add-error">
+          <button class="add-button" type="submit" aria-label="タスクを追加"><span aria-hidden="true">＋</span></button>
+        </form>
+        <p id="add-error" class="field-error" role="alert" hidden></p>
+        <p class="composer-note"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="2"></rect><path d="M5.5 7V4.5a2.5 2.5 0 0 1 5 0V7"></path></svg>このブラウザーに自動保存</p>
+      </footer>
+    </div>
+
+    <dialog id="edit-dialog" class="edit-dialog" aria-labelledby="edit-heading">
+      <form id="edit-form">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="dialog-heading">
+          <h2 id="edit-heading">タスクを編集</h2>
+          <button id="close-edit" class="icon-button" type="button" aria-label="編集を閉じる">×</button>
+        </div>
+        <label class="input-label" for="edit-title">やること</label>
+        <input id="edit-title" name="title" type="text" maxlength="200" required autocomplete="off" enterkeyhint="done" aria-describedby="edit-error" autofocus>
+        <p id="edit-error" class="field-error" role="alert" hidden></p>
+        <p class="input-hint">200文字まで入力できます。</p>
+        <div class="dialog-actions">
+          <button id="cancel-edit" type="button" class="secondary-button">キャンセル</button>
+          <button type="submit" class="primary-button">保存する</button>
+        </div>
+        <button id="delete-task" type="button" class="delete-button">このタスクを削除</button>
+        <div id="delete-confirmation" class="delete-confirmation" hidden>
+          <p>このタスクを削除しますか？</p>
+          <div class="dialog-actions">
+            <button id="cancel-delete" type="button" class="secondary-button">やめる</button>
+            <button id="confirm-delete" type="button" class="danger-button">削除する</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <p id="announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+    <noscript><p class="noscript-message">このアプリを使うには、ブラウザーのJavaScriptを有効にしてください。</p></noscript>
+  </body>
+</html>
