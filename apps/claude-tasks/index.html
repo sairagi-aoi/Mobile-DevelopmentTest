@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#fbf7f2" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1c1917" media="(prefers-color-scheme: dark)">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Claude Tasks">
+    <meta name="description" content="Claudeが作成した、iPhone向けのシンプルなタスク管理アプリ。">
+    <meta name="generator" content="Claude Code">
+    <title>Claude Tasks</title>
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header-row">
+          <h1 class="title">タスク</h1>
+          <span class="badge" title="このアプリはClaude（Anthropic）が作成しました">by Claude</span>
+        </div>
+        <p class="stats" id="stats" aria-live="polite">タスクはまだありません</p>
+
+        <div class="filters" role="group" aria-label="表示するタスク">
+          <button type="button" class="filter" data-filter="active" aria-pressed="true">未完了</button>
+          <button type="button" class="filter" data-filter="done" aria-pressed="false">完了</button>
+          <button type="button" class="filter" data-filter="all" aria-pressed="false">すべて</button>
+        </div>
+      </header>
+
+      <main class="main">
+        <ul class="list" id="list" aria-label="タスク一覧"></ul>
+        <p class="empty" id="empty" hidden></p>
+        <button type="button" class="clear-done" id="clear-done" hidden>完了したタスクを削除</button>
+        <footer class="credit">Built with Claude Code<br>データはこの端末のブラウザーにのみ保存されます</footer>
+      </main>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <label class="visually-hidden" for="new-title">新しいタスク</label>
+        <input id="new-title" name="title" type="text" maxlength="200"
+               placeholder="タスクを追加" enterkeyhint="done" required>
+        <button type="submit" class="add" aria-label="追加">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </form>
+    </div>
+
+    <dialog class="sheet" id="editor" aria-labelledby="editor-title">
+      <form method="dialog" id="editor-form" autocomplete="off">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="sheet-head">
+          <button type="button" class="text-button" id="editor-cancel">キャンセル</button>
+          <h2 id="editor-title">タスクを編集</h2>
+          <button type="submit" class="text-button strong" id="editor-save">保存</button>
+        </div>
+        <label class="field">
+          <span>タイトル</span>
+          <input id="edit-title" type="text" maxlength="200" enterkeyhint="done" required>
+        </label>
+        <label class="field">
+          <span>メモ（任意）</span>
+          <textarea id="edit-note" rows="4" maxlength="2000"></textarea>
+        </label>
+        <label class="toggle">
+          <input id="edit-done" type="checkbox">
+          <span>完了にする</span>
+        </label>
+        <button type="button" class="danger" id="editor-delete">このタスクを削除</button>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+      <span id="toast-text"></span>
+      <button type="button" class="toast-action" id="toast-action" hidden>元に戻す</button>
+    </div>
+
+  </body>
+</html>
