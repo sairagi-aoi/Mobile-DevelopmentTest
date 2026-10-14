@@ -80,6 +80,14 @@ h2 { font-size: 16px; font-weight: 600; letter-spacing: .03em; margin: 0; }
 .drag-handle:disabled { cursor: default; touch-action: auto; }
 .edit-indicator { color: #798679; font-size: 18px; flex-shrink: 0; }
 .task-item.is-completed { background: #f0f3ec; }
+[data-priority="high"] { --priority-background: #fbe5e3; --priority-border: #e6a7a1; --priority-color: #a12f2b; }
+[data-priority="medium"] { --priority-background: #fff0d8; --priority-border: #e6bf7b; --priority-color: #805009; }
+[data-priority="low"] { --priority-background: #e3effb; --priority-border: #a1bfdc; --priority-color: #285b89; }
+.task-item[data-priority]:not([data-priority="none"]) { --muted: #526057; background: var(--priority-background); border-color: var(--priority-border); }
+.task-item[data-priority]:not([data-priority="none"]) .child-button,
+.task-item[data-priority]:not([data-priority="none"]) .drag-handle { color: var(--priority-color); }
+.priority-flag { flex: 0 0 16px; width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.priority-badge { display: inline-flex; align-items: center; gap: 4px; color: var(--priority-color); font-size: 11px; font-weight: 700; line-height: 1.5; }
 .is-completed .task-title { color: var(--muted); text-decoration: line-through; text-decoration-color: #a6b29e; }
 .list-hint { text-align: center; color: var(--muted); font-size: 10px; margin: 19px 0; line-height: 1.8; }
 
@@ -110,6 +118,12 @@ input::placeholder { color: #788575; opacity: 1; }
 .icon-button { width: 44px; height: 44px; border-radius: 50%; background: transparent; color: var(--muted); font-size: 28px; }
 .input-label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 9px; }
 .input-hint { margin: 10px 0 22px; font-size: 11px; color: var(--muted); }
+.priority-field { min-width: 0; margin: 0; padding: 0; border: 0; }
+.priority-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.priority-option { display: flex; align-items: center; gap: 7px; min-height: 48px; padding: 10px; border: 1px solid var(--priority-border, var(--border)); border-radius: 12px; background: var(--priority-background, var(--paper)); color: var(--priority-color, var(--muted)); font-size: 12px; font-weight: 600; cursor: pointer; }
+.priority-option input { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; accent-color: var(--priority-color, var(--green)); }
+.priority-option:has(input:checked) { outline: 2px solid var(--priority-color, var(--green)); outline-offset: 1px; }
+.priority-option:has(input:focus-visible) { outline: 3px solid #87a479; outline-offset: 3px; }
 .dialog-actions { display: flex; gap: 10px; }
 .dialog-actions button { flex: 1; min-height: 48px; border-radius: 12px; padding: 12px; font-size: 14px; font-weight: 500; }
 .primary-button { background: var(--green); color: white; }

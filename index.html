@@ -7,10 +7,10 @@
     <meta name="description" content="ひとつずつ。iPhoneで手軽に使える、小さなタスク管理アプリ。">
     <title>ひとつずつ — タスク管理</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css">
-    <script src="task-model.js" defer></script>
-    <script src="task-drag.js" defer></script>
-    <script src="app.js" defer></script>
+    <link rel="stylesheet" href="styles.css?v=3-priority">
+    <script src="task-model.js?v=3-priority" defer></script>
+    <script src="task-drag.js?v=3-priority" defer></script>
+    <script src="app.js?v=3-priority" defer></script>
   </head>
   <body>
     <div class="app">
@@ -82,6 +82,16 @@
         <input id="edit-title" name="title" type="text" maxlength="200" required autocomplete="off" enterkeyhint="done" aria-describedby="edit-error" autofocus>
         <p id="edit-error" class="field-error" role="alert" hidden></p>
         <p class="input-hint">200文字まで入力できます。</p>
+        <fieldset class="priority-field" aria-describedby="priority-hint">
+          <legend class="input-label">優先度</legend>
+          <div class="priority-options">
+            <label class="priority-option" data-priority="none"><input type="radio" name="priority" value="none" checked><span>なし</span></label>
+            <label class="priority-option" data-priority="high"><input type="radio" name="priority" value="high"><svg class="priority-flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m0 0h10l-3 3 3 3H3"/></svg><span>高（赤）</span></label>
+            <label class="priority-option" data-priority="medium"><input type="radio" name="priority" value="medium"><svg class="priority-flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m0 0h10l-3 3 3 3H3"/></svg><span>中（オレンジ）</span></label>
+            <label class="priority-option" data-priority="low"><input type="radio" name="priority" value="low"><svg class="priority-flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m0 0h10l-3 3 3 3H3"/></svg><span>低（青）</span></label>
+          </div>
+        </fieldset>
+        <p id="priority-hint" class="input-hint">保存するとタスク全体がフラグの色に変わります。</p>
         <label class="input-label" for="edit-notes">メモ</label>
         <textarea id="edit-notes" name="notes" rows="4" maxlength="10000" placeholder="手順や、覚えておきたいことを自由に。" aria-describedby="notes-hint edit-error"></textarea>
         <p id="notes-hint" class="input-hint">改行できます。10,000文字まで。</p>
