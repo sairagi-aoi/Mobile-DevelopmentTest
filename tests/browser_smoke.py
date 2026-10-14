@@ -112,12 +112,116 @@ class TaskAppTests(unittest.TestCase):
         self.page.get_by_role("button", name="既存のタスクを編集", exact=True).click()
         self.page.get_by_label("メモ", exact=True).fill("以前のタスクにもメモ")
         self.page.get_by_role("button", name="保存する", exact=True).click()
-        self.assertEqual(self.stored()["version"], 2)
+        self.assertEqual(self.stored()["version"], 3)
         task = self.task("既存のタスク")
         self.assertEqual((task["id"], task["createdAt"], task["completed"], task["parentId"]), ("old-a", 100, True, None))
         self.assertEqual(task["notes"], "以前のタスクにもメモ")
+        self.assertEqual(task["priority"], "none")
         self.page.reload()
         expect(self.page.get_by_role("checkbox", name="既存のタスクを未完了に戻す")).to_be_checked()
+
+    def test_priority_colors_persist_on_completion_and_can_be_removed(self):
+        self.page.set_viewport_size({"width": 430, "height": 932})
+        self.add("優先度を変えるタスク")
+        row = self.page.locator(".task-item").first
+        colors = set()
+        for value, label, text in (("high", "高（赤）", "高"), ("medium", "中（オレンジ）", "中"), ("low", "低（青）", "低")):
+            self.page.get_by_role("button", name="優先度を変えるタスクを編集", exact=True).tap()
+            self.page.get_by_text(label, exact=True).tap()
+            color = self.page.locator(f'.priority-option[data-priority="{value}"]').evaluate("el => getComputedStyle(el).backgroundColor")
+            self.page.get_by_role("button", name="保存する", exact=True).tap()
+            self.assertEqual(self.task("優先度を変えるタスク")["priority"], value)
+            self.page.reload()
+            expect(row).to_have_attribute("data-priority", value)
+            expect(row.locator(".priority-text")).to_have_text(text)
+            self.assertEqual(row.evaluate("el => getComputedStyle(el).backgroundColor"), color)
+            colors.add(color)
+        self.assertEqual(len(colors), 3)
+        self.page.get_by_role("checkbox", name="優先度を変えるタスクを完了にする", exact=True).tap()
+        self.page.get_by_role("button", name="完了", exact=True).tap()
+        self.page.reload()
+        self.assertEqual(row.evaluate("el => getComputedStyle(el).backgroundColor"), color)
+        expect(row.locator(".priority-badge")).to_be_visible()
+        self.page.get_by_role("button", name="優先度を変えるタスクを編集", exact=True).tap()
+        expect(self.page.get_by_role("radio", name="低（青）", exact=True)).to_be_checked()
+        self.page.get_by_text("なし", exact=True).tap()
+        self.page.get_by_role("button", name="保存する", exact=True).tap()
+        self.page.reload()
+        self.assertEqual(self.task("優先度を変えるタスク")["priority"], "none")
+        expect(row.locator(".priority-badge")).to_be_hidden()
+        self.assertNotIn(row.evaluate("el => getComputedStyle(el).backgroundColor"), colors)
+
+    def test_version_two_migration_preserves_hierarchy_notes_and_order(self):
+        legacy = {"version": 2, "tasks": [
+            {"id": "parent", "title": "親", "notes": "親のメモ", "parentId": None, "completed": True, "createdAt": 100},
+            {"id": "child", "title": "子", "notes": "子のメモ\n2行目", "parentId": "parent", "completed": False, "createdAt": 200},
+        ]}
+        self.page.evaluate("([key, data]) => localStorage.setItem(key, JSON.stringify(data))", [STORAGE_KEY, legacy])
+        self.page.reload()
+        self.assertEqual(self.stored(), legacy)
+        expect(self.page.locator(".task-title")).to_have_text(["親", "子"])
+        expect(self.page.locator('.task-item[data-priority="none"]')).to_have_count(2)
+        self.page.get_by_role("button", name="子を編集", exact=True).click()
+        self.page.get_by_text("高（赤）", exact=True).tap()
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        self.assertEqual(self.stored()["version"], 3)
+        for original, saved in zip(legacy["tasks"], self.stored()["tasks"]):
+            self.assertEqual({key: saved[key] for key in original}, original)
+        self.assertEqual(self.task("親")["priority"], "none")
+        self.assertEqual(self.task("子")["priority"], "high")
+
+    def test_parent_child_priorities_and_touch_move_preserve_colors(self):
+        self.add("親A")
+        self.add("親B")
+        for title, label in (("親A", "高（赤）"), ("親B", "低（青）")):
+            self.page.get_by_role("button", name=f"{title}を編集", exact=True).click()
+            self.page.get_by_text(label, exact=True).tap()
+            self.page.get_by_role("button", name="保存する", exact=True).click()
+        self.page.get_by_role("button", name="親Aに子タスクを追加", exact=True).click()
+        expect(self.page.get_by_role("radio", name="なし", exact=True)).to_be_checked()
+        self.page.get_by_label("やること", exact=True).fill("子")
+        self.page.get_by_text("中（オレンジ）", exact=True).tap()
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        child = self.page.locator(f'.task-item[data-id="{self.task("子")["id"]}"]')
+        color = child.evaluate("el => getComputedStyle(el).backgroundColor")
+        session = self.touch_start("子")
+        self.assertEqual(self.page.locator(".drag-ghost").evaluate("el => getComputedStyle(el).backgroundColor"), color)
+        target = self.page.locator(f'.task-item[data-id="{self.task("親B")["id"]}"]').bounding_box()
+        self.touch_move(session, target["x"] + target["width"] / 2, target["y"] + target["height"] / 2)
+        session.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        session.detach()
+        self.page.reload()
+        self.assertEqual(self.task("子")["parentId"], self.task("親B")["id"])
+        self.assertEqual([self.task(title)["priority"] for title in ("親A", "親B", "子")], ["high", "low", "medium"])
+        self.assertEqual(child.evaluate("el => getComputedStyle(el).backgroundColor"), color)
+
+    def test_priority_cancel_and_save_failure_preserve_previous_value(self):
+        self.add("変更を保存しないタスク")
+        original = self.stored()
+        self.page.get_by_role("button", name="変更を保存しないタスクを編集", exact=True).click()
+        self.page.get_by_text("高（赤）", exact=True).tap()
+        self.page.get_by_role("button", name="キャンセル", exact=True).click()
+        self.assertEqual(self.stored(), original)
+        self.page.get_by_role("button", name="変更を保存しないタスクを編集", exact=True).click()
+        expect(self.page.get_by_role("radio", name="なし", exact=True)).to_be_checked()
+        self.page.get_by_text("低（青）", exact=True).tap()
+        self.page.evaluate("() => { Storage.prototype.setItem = () => { throw new DOMException('Full', 'QuotaExceededError'); }; }")
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        expect(self.page.locator("#edit-error")).to_be_visible()
+        expect(self.page.get_by_role("radio", name="低（青）", exact=True)).to_be_checked()
+        self.assertEqual(self.stored(), original)
+        expect(self.page.locator(".task-item")).to_have_attribute("data-priority", "none")
+
+    def test_invalid_priority_data_is_not_overwritten(self):
+        base = {"id": "a", "title": "A", "notes": "", "parentId": None, "completed": False, "createdAt": 100}
+        for extra in ({}, {"priority": "urgent"}, {"priority": 1}, {"priority": None}):
+            with self.subTest(extra=extra):
+                raw = json.dumps({"version": 3, "tasks": [{**base, **extra}]})
+                self.page.evaluate("([key, raw]) => localStorage.setItem(key, raw)", [STORAGE_KEY, raw])
+                self.page.reload()
+                expect(self.page.locator("#storage-error")).to_contain_text("保存データを読み込めません")
+                self.add("上書きしない")
+                self.assertEqual(self.page.evaluate("key => localStorage.getItem(key)", STORAGE_KEY), raw)
 
     def test_child_grandchild_notes_and_cancel(self):
         self.add("旅行")
@@ -435,7 +539,7 @@ class TaskAppTests(unittest.TestCase):
         expect(self.page.locator("#storage-error")).to_be_hidden()
 
     def test_corrupt_data_is_not_overwritten(self):
-        for raw in ("{invalid", json.dumps({"version": 3, "tasks": []}),
+        for raw in ("{invalid", json.dumps({"version": 4, "tasks": []}),
                     json.dumps({"version": 1, "tasks": [{"id": "invalid"}]})):
             with self.subTest(raw=raw):
                 self.page.evaluate("([key, raw]) => localStorage.setItem(key, raw)", [STORAGE_KEY, raw])

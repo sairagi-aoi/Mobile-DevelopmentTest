@@ -1,6 +1,8 @@
 (() => {
   "use strict";
 
+  const priorities = ["none", "high", "medium", "low"];
+
   function childrenByParent(tasks) {
     const groups = new Map();
     for (const task of tasks) {
@@ -41,7 +43,7 @@
   function parse(raw) {
     if (raw === null) return [];
     const data = JSON.parse(raw);
-    if (!data || ![1, 2].includes(data.version) || !Array.isArray(data.tasks)) {
+    if (!data || ![1, 2, 3].includes(data.version) || !Array.isArray(data.tasks)) {
       throw new Error("Invalid storage format");
     }
     const ids = new Set();
@@ -49,8 +51,9 @@
       if (!task || typeof task.id !== "string" || !task.id || ids.has(task.id)
         || typeof task.title !== "string" || !task.title.trim() || task.title.length > 200
         || typeof task.completed !== "boolean" || !Number.isFinite(task.createdAt) || task.createdAt < 0
-        || (data.version === 2 && (typeof task.notes !== "string" || task.notes.length > 10000
-          || !(task.parentId === null || typeof task.parentId === "string")))) {
+        || (data.version >= 2 && (typeof task.notes !== "string" || task.notes.length > 10000
+          || !(task.parentId === null || typeof task.parentId === "string")))
+        || (data.version === 3 && !priorities.includes(task.priority))) {
         throw new Error("Invalid task data");
       }
       ids.add(task.id);
@@ -58,6 +61,7 @@
         id: task.id, title: task.title, completed: task.completed, createdAt: task.createdAt,
         notes: data.version === 1 ? "" : task.notes,
         parentId: data.version === 1 ? null : task.parentId,
+        priority: data.version < 3 ? "none" : task.priority,
       };
     });
     const byId = new Map(tasks.map((task) => [task.id, task]));
@@ -103,5 +107,5 @@
       .map((task) => task.parentId === id ? { ...task, parentId: source.parentId } : task);
   }
 
-  window.TaskModel = { parse, flatten, descendantIds, move, remove };
+  window.TaskModel = { parse, flatten, descendantIds, move, remove, priorities };
 })();

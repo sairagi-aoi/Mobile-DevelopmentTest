@@ -3,6 +3,7 @@
 
   const STORAGE_KEY = "tiny-tasks:v1";
   const MAX_TITLE_LENGTH = 200;
+  const PRIORITY_LABELS = { high: "高", medium: "中", low: "低" };
   const model = window.TaskModel;
   const elements = Object.fromEntries([
     "today", "remaining-count", "progress-label", "progress", "summary-message",
@@ -64,7 +65,7 @@
       return false;
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, tasks: next }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, tasks: next }));
     } catch {
       showError("storage-error", "保存できませんでした。変更は反映していません。ブラウザーの保存設定や空き容量を確認して、もう一度お試しください。");
       return false;
@@ -135,14 +136,20 @@
     node.className = "task-node";
     node.dataset.id = task.id;
     // 固定の構造のみHTMLで作り、ユーザーの入力はすべてtextContentで表示する。
-    node.innerHTML = '<div class="task-item"><label class="task-check-label"><input type="checkbox" class="task-checkbox"></label><button type="button" class="task-edit"><span class="parent-caption"></span><span class="task-title"></span><span class="context-label">親タスク</span><span class="note-preview"></span></button><button type="button" class="child-button"><span aria-hidden="true">＋</span></button><button type="button" class="drag-handle" aria-describedby="drag-help"><span aria-hidden="true">⠿</span></button></div>';
+    node.innerHTML = '<div class="task-item"><label class="task-check-label"><input type="checkbox" class="task-checkbox"></label><button type="button" class="task-edit"><span class="parent-caption"></span><span class="priority-badge"><svg class="priority-flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m0 0h10l-3 3 3 3H3"/></svg><span class="sr-only">優先度：</span><span class="priority-text"></span></span><span class="task-title"></span><span class="context-label">親タスク</span><span class="note-preview"></span></button><button type="button" class="child-button"><span aria-hidden="true">＋</span></button><button type="button" class="drag-handle" aria-describedby="drag-help"><span aria-hidden="true">⠿</span></button></div>';
     const row = node.querySelector(".task-item");
     row.dataset.id = task.id;
+    row.dataset.priority = task.priority;
     row.classList.toggle("is-completed", task.completed);
     const checkbox = node.querySelector(".task-checkbox");
     checkbox.checked = task.completed;
     checkbox.setAttribute("aria-label", `${task.title}を${task.completed ? "未完了に戻す" : "完了にする"}`);
     node.querySelector(".task-edit").setAttribute("aria-label", `${task.title}を編集`);
+    const badge = node.querySelector(".priority-badge");
+    badge.hidden = task.priority === "none";
+    badge.id = `priority-${task.id}`;
+    node.querySelector(".priority-text").textContent = PRIORITY_LABELS[task.priority] || "";
+    if (!badge.hidden) node.querySelector(".task-edit").setAttribute("aria-describedby", badge.id);
     node.querySelector(".task-title").textContent = task.title;
     node.querySelector(".context-label").hidden = !context;
     const caption = node.querySelector(".parent-caption");
@@ -184,6 +191,7 @@
     returnFocusId = id;
     elements["edit-heading"].textContent = child ? "子タスクを追加" : "タスクを編集";
     elements["edit-title"].value = child ? "" : task.title;
+    elements["edit-form"].elements.priority.value = child ? "none" : task.priority;
     elements["edit-notes"].value = child ? "" : task.notes;
     const excluded = child ? new Set() : model.descendantIds(tasks, id);
     const options = [new Option("親なし（独立したタスク）", "")];
@@ -219,7 +227,7 @@
     if (title === null) return;
     const id = newId();
     const saved = updateTasks((latest) => [
-      { id, title, notes: "", parentId: null, completed: false, createdAt: Date.now() }, ...latest,
+      { id, title, notes: "", parentId: null, priority: "none", completed: false, createdAt: Date.now() }, ...latest,
     ], "タスクを追加しました。");
     if (!saved) {
       showError("add-error", "追加できませんでした。ブラウザーの保存設定や空き容量を確認してください。");
@@ -261,6 +269,11 @@
     event.preventDefault();
     const title = getTitle(elements["edit-title"], "edit-error");
     if (title === null) return;
+    const priority = elements["edit-form"].elements.priority.value;
+    if (!model.priorities.includes(priority)) {
+      showError("edit-error", "優先度を選んでください。");
+      return;
+    }
     const notes = elements["edit-notes"].value;
     if (notes.length > 10000) { showError("edit-error", "メモは10,000文字以内で入力してください。"); return; }
     const parentId = elements["edit-parent"].value || null;
@@ -269,12 +282,12 @@
     const saved = updateTasks((latest) => {
       if (parentId !== null && !latest.some((task) => task.id === parentId)) return null;
       if (creating) {
-        const next = [{ id, title, notes, parentId: null, completed: false, createdAt: Date.now() }, ...latest];
+        const next = [{ id, title, notes, priority, parentId: null, completed: false, createdAt: Date.now() }, ...latest];
         return parentId === null ? next : model.move(next, id, parentId, "child");
       }
       const current = latest.find((task) => task.id === id);
       if (!current) return null;
-      const next = latest.map((task) => task.id === id ? { ...task, title, notes } : task);
+      const next = latest.map((task) => task.id === id ? { ...task, title, notes, priority } : task);
       return parentId === current.parentId ? next : model.move(next, id, parentId, parentId === null ? "root" : "child");
     }, creating ? "子タスクを追加しました。" : "タスクを更新しました。",
     "更新できません。タスクや親が別の画面で削除されていないか確認してください。自分自身や子孫を親にすることはできません。");
