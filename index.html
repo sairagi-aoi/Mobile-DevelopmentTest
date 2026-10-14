@@ -8,6 +8,8 @@
     <title>ひとつずつ — タスク管理</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="stylesheet" href="styles.css">
+    <script src="task-model.js" defer></script>
+    <script src="task-drag.js" defer></script>
     <script src="app.js" defer></script>
   </head>
   <body>
@@ -54,7 +56,7 @@
             <h3 id="empty-title">やることを、ひとつ。</h3>
             <p id="empty-copy">下の入力欄から追加してみましょう。<br>小さなことでも、大丈夫。</p>
           </div>
-          <p class="list-hint" id="list-hint" hidden>タスク名をタップすると編集できます。</p>
+          <p class="list-hint" id="list-hint" hidden>タスク名で編集・メモ、＋で子タスク、⠿で移動。</p>
         </section>
       </main>
 
@@ -80,13 +82,19 @@
         <input id="edit-title" name="title" type="text" maxlength="200" required autocomplete="off" enterkeyhint="done" aria-describedby="edit-error" autofocus>
         <p id="edit-error" class="field-error" role="alert" hidden></p>
         <p class="input-hint">200文字まで入力できます。</p>
+        <label class="input-label" for="edit-notes">メモ</label>
+        <textarea id="edit-notes" name="notes" rows="4" maxlength="10000" placeholder="手順や、覚えておきたいことを自由に。" aria-describedby="notes-hint edit-error"></textarea>
+        <p id="notes-hint" class="input-hint">改行できます。10,000文字まで。</p>
+        <label class="input-label" for="edit-parent">親タスク</label>
+        <select id="edit-parent" name="parent" aria-describedby="parent-hint edit-error"></select>
+        <p id="parent-hint" class="input-hint">「親なし」を選ぶと独立したタスクになります。</p>
         <div class="dialog-actions">
           <button id="cancel-edit" type="button" class="secondary-button">キャンセル</button>
           <button type="submit" class="primary-button">保存する</button>
         </div>
         <button id="delete-task" type="button" class="delete-button">このタスクを削除</button>
         <div id="delete-confirmation" class="delete-confirmation" hidden>
-          <p>このタスクを削除しますか？</p>
+          <p>このタスクを削除しますか？<br>子タスクは残し、ひとつ上の階層に移します。</p>
           <div class="dialog-actions">
             <button id="cancel-delete" type="button" class="secondary-button">やめる</button>
             <button id="confirm-delete" type="button" class="danger-button">削除する</button>
@@ -95,6 +103,9 @@
       </form>
     </dialog>
 
+    <div id="root-drop-zone" class="root-drop-zone" hidden>ここに置いて、親なしにする</div>
+    <p id="drag-status" class="drag-status" role="status" hidden></p>
+    <p id="drag-help" class="sr-only">移動ハンドルをドラッグすると、行の上端で前、下端で後ろ、中央で子タスクになります。矢印キーの上下で並べ替え、右で前のタスクの子に、左でひとつ上の階層に移動できます。移動は「すべて」表示で使えます。</p>
     <p id="announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     <noscript><p class="noscript-message">このアプリを使うには、ブラウザーのJavaScriptを有効にしてください。</p></noscript>
   </body>
