@@ -7,10 +7,10 @@
     <meta name="description" content="ひとつずつ。iPhoneで手軽に使える、小さなタスク管理アプリ。">
     <title>ひとつずつ — タスク管理</title>
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="styles.css?v=3-priority">
-    <script src="task-model.js?v=3-priority" defer></script>
-    <script src="task-drag.js?v=3-priority" defer></script>
-    <script src="app.js?v=3-priority" defer></script>
+    <link rel="stylesheet" href="styles.css?v=4-projects">
+    <script src="task-model.js?v=4-projects" defer></script>
+    <script src="task-drag.js?v=4-projects" defer></script>
+    <script src="app.js?v=4-projects" defer></script>
   </head>
   <body>
     <div class="app">
@@ -40,11 +40,27 @@
 
         <p id="storage-error" class="error-banner" role="alert" hidden></p>
 
-        <section class="tasks-section" aria-labelledby="tasks-heading">
-          <div class="section-heading">
-            <h2 id="tasks-heading">マイタスク</h2>
-            <span id="task-count" class="task-count">0件</span>
+        <section class="projects-section" aria-labelledby="projects-heading">
+          <div class="section-heading projects-heading">
+            <h2 id="projects-heading">プロジェクト <span id="project-count" class="project-count">0 / 5</span></h2>
+            <button id="add-project" class="project-action" type="button" aria-label="プロジェクトを作成"><span aria-hidden="true">＋</span> 作成</button>
           </div>
+          <div id="project-views" class="project-views" role="group" aria-label="タスクの保存先を表示">
+            <button type="button" data-view="inbox" aria-pressed="true">Inbox</button>
+            <button type="button" data-view="all" aria-pressed="false">すべてのタスク</button>
+          </div>
+          <p id="project-limit-hint" class="project-limit-hint">プロジェクトは5個まで作成できます。</p>
+        </section>
+
+        <section class="tasks-section" aria-labelledby="tasks-heading">
+          <div class="section-heading task-section-heading">
+            <h2 id="tasks-heading">Inbox</h2>
+            <div class="task-heading-actions">
+              <span id="task-count" class="task-count">0件</span>
+              <button id="edit-project" class="project-action" type="button" aria-label="プロジェクトを編集" hidden>編集</button>
+            </div>
+          </div>
+          <p id="view-description" class="view-description">プロジェクト未指定のタスク</p>
           <div class="filters" role="group" aria-label="タスクの表示を切り替え">
             <button type="button" data-filter="all" aria-pressed="true">すべて</button>
             <button type="button" data-filter="active" aria-pressed="false">未完了</button>
@@ -61,6 +77,10 @@
       </main>
 
       <footer class="composer">
+        <div class="composer-destination">
+          <label for="add-project-select">追加先</label>
+          <select id="add-project-select" name="project" form="add-form" aria-label="追加先"><option value="">Inbox</option></select>
+        </div>
         <form id="add-form" class="add-form">
           <label class="sr-only" for="new-task">新しいタスク</label>
           <input id="new-task" name="title" type="text" placeholder="次にやることは？" maxlength="200" required autocomplete="off" enterkeyhint="done" aria-describedby="add-error">
@@ -95,6 +115,9 @@
         <label class="input-label" for="edit-notes">メモ</label>
         <textarea id="edit-notes" name="notes" rows="4" maxlength="10000" placeholder="手順や、覚えておきたいことを自由に。" aria-describedby="notes-hint edit-error"></textarea>
         <p id="notes-hint" class="input-hint">改行できます。10,000文字まで。</p>
+        <label class="input-label" for="edit-project-select">所属プロジェクト</label>
+        <select id="edit-project-select" name="project" aria-describedby="task-project-hint edit-error"><option value="">Inbox</option></select>
+        <p id="task-project-hint" class="input-hint">所属先を変えると、子タスクも一緒に移動します。</p>
         <label class="input-label" for="edit-parent">親タスク</label>
         <select id="edit-parent" name="parent" aria-describedby="parent-hint edit-error"></select>
         <p id="parent-hint" class="input-hint">「親なし」を選ぶと独立したタスクになります。</p>
@@ -108,6 +131,32 @@
           <div class="dialog-actions">
             <button id="cancel-delete" type="button" class="secondary-button">やめる</button>
             <button id="confirm-delete" type="button" class="danger-button">削除する</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="project-dialog" class="edit-dialog" aria-labelledby="project-heading">
+      <form id="project-form">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="dialog-heading">
+          <h2 id="project-heading">プロジェクトを作成</h2>
+          <button id="close-project" class="icon-button" type="button" aria-label="プロジェクト編集を閉じる">×</button>
+        </div>
+        <label class="input-label" for="project-name">プロジェクト名</label>
+        <input id="project-name" name="name" type="text" maxlength="50" required autocomplete="off" enterkeyhint="done" aria-describedby="project-error" autofocus>
+        <p id="project-error" class="field-error" role="alert" hidden></p>
+        <p class="input-hint">50文字まで入力できます。</p>
+        <div class="dialog-actions">
+          <button id="project-cancel" type="button" class="secondary-button">キャンセル</button>
+          <button type="submit" class="primary-button">保存する</button>
+        </div>
+        <button id="delete-project" type="button" class="delete-button" hidden>このプロジェクトを削除</button>
+        <div id="project-delete-confirmation" class="delete-confirmation" hidden>
+          <p>このプロジェクトを削除しますか？<br>タスクは削除せず、Inboxに移します。</p>
+          <div class="dialog-actions">
+            <button id="cancel-project-delete" type="button" class="secondary-button">やめる</button>
+            <button id="confirm-project-delete" type="button" class="danger-button">削除する</button>
           </div>
         </div>
       </form>
