@@ -70,6 +70,23 @@ class TaskAppTests(unittest.TestCase):
     def task(self, title):
         return next(task for task in self.stored()["tasks"] if task["title"] == title)
 
+    def project(self, name):
+        return next(project for project in self.stored()["projects"] if project["name"] == name)
+
+    def create_project(self, name, page=None):
+        page = page or self.page
+        page.get_by_role("button", name="プロジェクトを作成", exact=True).click()
+        page.get_by_label("プロジェクト名", exact=True).fill(name)
+        page.locator("#project-dialog").get_by_role("button", name="保存する", exact=True).click()
+        expect(page.locator("#project-dialog")).not_to_be_visible()
+
+    def view(self, view):
+        self.page.locator(f'#project-views [data-view="{view}"]').click()
+
+    def add_to_project(self, title, project_id):
+        self.page.locator("#add-project-select").select_option(project_id)
+        self.add(title)
+
     def prepare_drag(self):
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.page.evaluate("window.scrollTo(0, document.querySelector('.tasks-section').offsetTop - 100)")
@@ -112,11 +129,13 @@ class TaskAppTests(unittest.TestCase):
         self.page.get_by_role("button", name="既存のタスクを編集", exact=True).click()
         self.page.get_by_label("メモ", exact=True).fill("以前のタスクにもメモ")
         self.page.get_by_role("button", name="保存する", exact=True).click()
-        self.assertEqual(self.stored()["version"], 3)
+        self.assertEqual(self.stored()["version"], 4)
+        self.assertEqual(self.stored()["projects"], [])
         task = self.task("既存のタスク")
         self.assertEqual((task["id"], task["createdAt"], task["completed"], task["parentId"]), ("old-a", 100, True, None))
         self.assertEqual(task["notes"], "以前のタスクにもメモ")
         self.assertEqual(task["priority"], "none")
+        self.assertIsNone(task["projectId"])
         self.page.reload()
         expect(self.page.get_by_role("checkbox", name="既存のタスクを未完了に戻す")).to_be_checked()
 
@@ -164,9 +183,11 @@ class TaskAppTests(unittest.TestCase):
         self.page.get_by_role("button", name="子を編集", exact=True).click()
         self.page.get_by_text("高（赤）", exact=True).tap()
         self.page.get_by_role("button", name="保存する", exact=True).click()
-        self.assertEqual(self.stored()["version"], 3)
+        self.assertEqual(self.stored()["version"], 4)
+        self.assertEqual(self.stored()["projects"], [])
         for original, saved in zip(legacy["tasks"], self.stored()["tasks"]):
             self.assertEqual({key: saved[key] for key in original}, original)
+            self.assertIsNone(saved["projectId"])
         self.assertEqual(self.task("親")["priority"], "none")
         self.assertEqual(self.task("子")["priority"], "high")
 
@@ -222,6 +243,322 @@ class TaskAppTests(unittest.TestCase):
                 expect(self.page.locator("#storage-error")).to_contain_text("保存データを読み込めません")
                 self.add("上書きしない")
                 self.assertEqual(self.page.evaluate("key => localStorage.getItem(key)", STORAGE_KEY), raw)
+
+    def test_version_three_migration_keeps_priority_and_moves_existing_tasks_to_inbox(self):
+        legacy = {"version": 3, "tasks": [
+            {"id": "parent", "title": "以前の親", "notes": "親のメモ", "parentId": None,
+             "completed": True, "createdAt": 100, "priority": "high"},
+            {"id": "child", "title": "以前の子", "notes": "子のメモ", "parentId": "parent",
+             "completed": False, "createdAt": 200, "priority": "low"},
+        ]}
+        self.page.evaluate("([key, data]) => localStorage.setItem(key, JSON.stringify(data))", [STORAGE_KEY, legacy])
+        self.page.reload()
+        expect(self.page.locator('#project-views [data-view="inbox"]')).to_have_attribute("aria-pressed", "true")
+        expect(self.page.locator(".task-title")).to_have_text(["以前の親", "以前の子"])
+        self.assertEqual(self.stored(), legacy, "Merely reading old data must not rewrite it")
+        self.page.get_by_role("button", name="以前の子を編集", exact=True).click()
+        expect(self.page.locator("#edit-project-select")).to_have_value("")
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        self.assertEqual(self.stored()["version"], 4)
+        self.assertEqual(self.stored()["projects"], [])
+        for original, saved in zip(legacy["tasks"], self.stored()["tasks"]):
+            self.assertEqual({key: saved[key] for key in original}, original)
+            self.assertIsNone(saved["projectId"])
+
+    def test_projects_limit_rename_delete_and_safe_names(self):
+        unsafe_name = '<img src=x onerror="window.projectInjected=true">'
+        for name in (unsafe_name, "仕事", "家事", "趣味", "旅行"):
+            self.create_project(name)
+        self.assertEqual(len(self.stored()["projects"]), 5)
+        expect(self.page.get_by_role("button", name="プロジェクトを作成", exact=True)).to_be_disabled()
+        expect(self.page.locator("#project-views img")).to_have_count(0)
+        expect(self.page.locator('#project-views [data-view="inbox"]')).to_be_visible()
+        self.assertIsNone(self.page.evaluate("window.projectInjected"))
+        travel = self.project("旅行")
+        expect(self.page.locator(f'#project-views [data-view="{travel["id"]}"]')).to_have_attribute("aria-pressed", "true")
+        self.page.locator("#edit-project").click()
+        self.page.get_by_label("プロジェクト名", exact=True).fill("次の旅行")
+        self.page.locator("#project-dialog").get_by_role("button", name="保存する", exact=True).click()
+        self.assertEqual(self.project("次の旅行")["id"], travel["id"])
+        self.page.locator("#edit-project").click()
+        self.page.get_by_role("button", name="このプロジェクトを削除", exact=True).click()
+        self.page.locator("#project-dialog").get_by_role("button", name="削除する", exact=True).click()
+        self.assertEqual(len(self.stored()["projects"]), 4)
+        expect(self.page.get_by_role("button", name="プロジェクトを作成", exact=True)).to_be_enabled()
+        self.create_project("新しいプロジェクト")
+        self.assertEqual(len(self.stored()["projects"]), 5)
+        self.page.reload()
+        expect(self.page.locator('#project-views [data-view="inbox"]')).to_have_attribute("aria-pressed", "true")
+        self.assertEqual(self.project("新しいプロジェクト")["name"], "新しいプロジェクト")
+
+    def test_project_name_validation_and_cancel(self):
+        self.create_project("仕事")
+        original = self.stored()
+        self.page.get_by_role("button", name="プロジェクトを作成", exact=True).click()
+        self.page.get_by_label("プロジェクト名", exact=True).fill("   ")
+        self.page.locator("#project-dialog").get_by_role("button", name="保存する", exact=True).click()
+        expect(self.page.locator("#project-dialog")).to_be_visible()
+        self.assertEqual(self.stored(), original)
+        self.page.get_by_label("プロジェクト名", exact=True).fill("仕事")
+        self.page.locator("#project-dialog").get_by_role("button", name="保存する", exact=True).click()
+        expect(self.page.locator("#project-dialog")).to_be_visible()
+        self.assertEqual(self.stored(), original)
+        self.page.locator("#project-dialog").get_by_role("button", name="キャンセル", exact=True).click()
+        expect(self.page.locator("#project-dialog")).not_to_be_visible()
+        self.page.locator("#edit-project").click()
+        self.page.get_by_label("プロジェクト名", exact=True).fill("保存しない名前")
+        self.page.keyboard.press("Escape")
+        self.assertEqual(self.stored(), original)
+
+    def test_inbox_is_default_and_explicit_destination_changes_visible_section(self):
+        expect(self.page.locator("#add-project-select")).to_have_value("")
+        self.add("Inboxのタスク")
+        self.assertIsNone(self.task("Inboxのタスク")["projectId"])
+        self.create_project("仕事")
+        work_id = self.project("仕事")["id"]
+        expect(self.page.locator(".task-item")).to_have_count(0)
+        expect(self.page.locator("#add-project-select")).to_have_value("")
+        self.add_to_project("仕事のタスク", work_id)
+        expect(self.page.locator(".task-title")).to_have_text(["仕事のタスク"])
+        self.assertEqual(self.task("仕事のタスク")["projectId"], work_id)
+        expect(self.page.locator("#add-project-select")).to_have_value("")
+        self.add("プロジェクト表示からInboxへ")
+        expect(self.page.locator('#project-views [data-view="inbox"]')).to_have_attribute("aria-pressed", "true")
+        expect(self.page.locator(".task-title")).to_have_text(["プロジェクト表示からInboxへ", "Inboxのタスク"])
+        expect(self.page.locator("#remaining-count")).to_have_text("3")
+        self.view("all")
+        self.assertEqual(set(self.page.locator(".task-title").all_text_contents()),
+                         {"仕事のタスク", "Inboxのタスク", "プロジェクト表示からInboxへ"})
+        self.page.reload()
+        expect(self.page.locator('#project-views [data-view="inbox"]')).to_have_attribute("aria-pressed", "true")
+        expect(self.page.locator("#add-project-select")).to_have_value("")
+
+    def test_project_change_moves_subtree_and_filters_parent_choices(self):
+        self.add("Inboxの親")
+        self.create_project("仕事")
+        work_id = self.project("仕事")["id"]
+        self.add_to_project("仕事の親", work_id)
+        self.child("仕事の親", "子", "移動しても残るメモ")
+        self.child("子", "孫")
+        for title in ("仕事の親", "子", "孫"):
+            self.assertEqual(self.task(title)["projectId"], work_id)
+        self.create_project("家事")
+        home_id = self.project("家事")["id"]
+        self.add_to_project("家事の親", home_id)
+        self.view(work_id)
+        self.page.get_by_role("button", name="子を編集", exact=True).click()
+        work_options = self.page.locator("#edit-parent option").evaluate_all("els => els.map(el => el.value)")
+        self.assertEqual(set(work_options), {"", self.task("仕事の親")["id"]})
+        self.page.get_by_label("所属プロジェクト", exact=True).select_option(home_id)
+        expect(self.page.locator("#edit-parent")).to_have_value("")
+        home_options = self.page.locator("#edit-parent option").evaluate_all("els => els.map(el => el.value)")
+        self.assertEqual(set(home_options), {"", self.task("家事の親")["id"]})
+        self.page.get_by_label("親タスク", exact=True).select_option(self.task("家事の親")["id"])
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        self.assertEqual(self.task("子")["parentId"], self.task("家事の親")["id"])
+        self.assertEqual(self.task("孫")["parentId"], self.task("子")["id"])
+        self.assertEqual([self.task(title)["projectId"] for title in ("子", "孫")], [home_id, home_id])
+        self.assertEqual(self.task("子")["notes"], "移動しても残るメモ")
+        self.assertEqual(self.task("仕事の親")["projectId"], work_id)
+        self.view(home_id)
+        self.page.get_by_role("button", name="子を編集", exact=True).click()
+        self.page.get_by_label("所属プロジェクト", exact=True).select_option("")
+        expect(self.page.locator("#edit-parent")).to_have_value("")
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        self.view("inbox")
+        expect(self.page.get_by_role("button", name="子を編集", exact=True)).to_be_visible()
+        self.assertIsNone(self.task("子")["parentId"])
+        self.assertIsNone(self.task("子")["projectId"])
+        self.assertIsNone(self.task("孫")["projectId"])
+
+    def test_new_child_can_change_project_and_drop_original_parent(self):
+        self.create_project("仕事")
+        work_id = self.project("仕事")["id"]
+        self.add_to_project("親", work_id)
+        self.page.get_by_role("button", name="親に子タスクを追加", exact=True).click()
+        expect(self.page.locator("#edit-project-select")).to_have_value(work_id)
+        expect(self.page.locator("#edit-parent")).to_have_value(self.task("親")["id"])
+        self.page.get_by_label("やること", exact=True).fill("Inboxに追加")
+        self.page.get_by_label("所属プロジェクト", exact=True).select_option("")
+        expect(self.page.locator("#edit-parent")).to_have_value("")
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        self.assertIsNone(self.task("Inboxに追加")["parentId"])
+        self.assertIsNone(self.task("Inboxに追加")["projectId"])
+
+    def test_delete_project_preserves_all_task_details_and_hierarchy_in_inbox(self):
+        self.create_project("旅行")
+        project_id = self.project("旅行")["id"]
+        self.add_to_project("準備", project_id)
+        self.child("準備", "予約", "予約番号123")
+        self.child("予約", "確認")
+        self.page.get_by_role("button", name="予約を編集", exact=True).click()
+        self.page.get_by_text("高（赤）", exact=True).tap()
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        self.page.get_by_role("checkbox", name="予約を完了にする", exact=True).click()
+        original_tasks = self.stored()["tasks"]
+        self.page.locator("#edit-project").click()
+        self.page.get_by_role("button", name="このプロジェクトを削除", exact=True).click()
+        self.page.locator("#project-dialog").get_by_role("button", name="削除する", exact=True).click()
+        self.assertEqual(self.stored()["projects"], [])
+        self.assertEqual(self.stored()["tasks"], [{**task, "projectId": None} for task in original_tasks])
+        self.page.reload()
+        expect(self.page.locator(".task-title")).to_have_text(["準備", "予約", "確認"])
+        expect(self.page.get_by_role("checkbox", name="予約を未完了に戻す", exact=True)).to_be_checked()
+
+    def test_real_touch_cross_project_drag_moves_whole_subtree_and_root_keeps_project(self):
+        self.create_project("仕事")
+        work_id = self.project("仕事")["id"]
+        self.add_to_project("移動する親", work_id)
+        self.child("移動する親", "一緒に移動する子", "残すメモ")
+        self.create_project("家事")
+        home_id = self.project("家事")["id"]
+        self.add_to_project("移動先", home_id)
+        self.view("all")
+        session = self.touch_start("移動する親")
+        target = self.page.locator(f'.task-item[data-id="{self.task("移動先")["id"]}"]').bounding_box()
+        self.touch_move(session, target["x"] + target["width"] / 2, target["y"] + target["height"] / 2)
+        session.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        session.detach()
+        self.assertEqual(self.task("移動する親")["parentId"], self.task("移動先")["id"])
+        self.assertEqual([self.task(title)["projectId"] for title in ("移動する親", "一緒に移動する子")], [home_id, home_id])
+        session = self.touch_start("移動する親")
+        zone = self.page.locator("#root-drop-zone").bounding_box()
+        self.touch_move(session, zone["x"] + zone["width"] / 2, zone["y"] + zone["height"] / 2)
+        session.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": []})
+        session.detach()
+        self.assertIsNone(self.task("移動する親")["parentId"])
+        self.assertEqual(self.task("移動する親")["projectId"], home_id)
+        self.assertEqual(self.task("一緒に移動する子")["notes"], "残すメモ")
+        self.page.reload()
+        self.view(home_id)
+        expect(self.page.locator(".task-title")).to_have_text(["移動先", "移動する親", "一緒に移動する子"])
+
+    def test_keyboard_project_roots_ignore_hidden_project_siblings(self):
+        self.add("Inboxのルート")
+        self.create_project("仕事")
+        work_id = self.project("仕事")["id"]
+        self.add_to_project("仕事A", work_id)
+        self.create_project("家事")
+        home_id = self.project("家事")["id"]
+        self.add_to_project("家事のルート", home_id)
+        self.add_to_project("仕事B", work_id)
+        project_ids = {task["id"]: task["projectId"] for task in self.stored()["tasks"]}
+        expect(self.page.locator(".task-title")).to_have_text(["仕事B", "仕事A"])
+        handle = self.page.get_by_role("button", name="仕事Bを移動", exact=True)
+        handle.focus()
+        handle.press("ArrowDown")
+        expect(self.page.locator(".task-title")).to_have_text(["仕事A", "仕事B"])
+        first = self.page.get_by_role("button", name="仕事Aを移動", exact=True)
+        first.focus()
+        first.press("ArrowUp")
+        first.press("ArrowRight")
+        expect(self.page.locator(".task-title")).to_have_text(["仕事A", "仕事B"])
+        self.assertIsNone(self.task("仕事A")["parentId"])
+        handle.focus()
+        handle.press("ArrowUp")
+        expect(self.page.locator(".task-title")).to_have_text(["仕事B", "仕事A"])
+        for view, title in (("inbox", "Inboxのルート"), (home_id, "家事のルート")):
+            self.view(view)
+            isolated = self.page.get_by_role("button", name=f"{title}を移動", exact=True)
+            isolated.focus()
+            for key in ("ArrowUp", "ArrowDown", "ArrowRight"):
+                isolated.press(key)
+            expect(self.page.locator(".task-title")).to_have_text([title])
+            self.assertIsNone(self.task(title)["parentId"])
+        self.assertEqual({task["id"]: task["projectId"] for task in self.stored()["tasks"]}, project_ids)
+
+    def test_stale_deleted_project_destination_keeps_add_and_edit_inputs(self):
+        self.create_project("削除されるプロジェクト")
+        project_id = self.project("削除されるプロジェクト")["id"]
+        self.add_to_project("残すタスク", project_id)
+        self.page.locator("#add-project-select").select_option(project_id)
+        self.page.get_by_label("新しいタスク", exact=True).fill("追加先を失った入力")
+        self.page.get_by_role("button", name="残すタスクを編集", exact=True).click()
+        self.page.get_by_label("メモ", exact=True).fill("保存前のメモ")
+        second = self.context.new_page()
+        second.goto(self.url)
+        second.locator(f'#project-views [data-view="{project_id}"]').click()
+        second.locator("#edit-project").click()
+        second.get_by_role("button", name="このプロジェクトを削除", exact=True).click()
+        second.locator("#project-dialog").get_by_role("button", name="削除する", exact=True).click()
+        expect(self.page.locator('#project-views [data-view="inbox"]')).to_have_attribute("aria-pressed", "true")
+        after_delete = self.stored()
+        self.page.get_by_role("button", name="保存する", exact=True).click()
+        expect(self.page.locator("#edit-error")).to_be_visible()
+        expect(self.page.get_by_label("メモ", exact=True)).to_have_value("保存前のメモ")
+        self.assertEqual(self.stored(), after_delete)
+        self.page.get_by_role("button", name="キャンセル", exact=True).click()
+        self.page.get_by_role("button", name="タスクを追加", exact=True).click()
+        expect(self.page.locator("#add-error")).to_be_visible()
+        expect(self.page.get_by_label("新しいタスク", exact=True)).to_have_value("追加先を失った入力")
+        self.assertEqual(self.stored(), after_delete)
+        second.close()
+
+    def test_project_save_failure_preserves_projects_tasks_and_form(self):
+        self.create_project("元のプロジェクト")
+        project_id = self.project("元のプロジェクト")["id"]
+        self.add_to_project("元のタスク", project_id)
+        original = self.stored()
+        self.page.evaluate("() => { Storage.prototype.setItem = () => { throw new DOMException('Full', 'QuotaExceededError'); }; }")
+        self.page.get_by_role("button", name="プロジェクトを作成", exact=True).click()
+        self.page.get_by_label("プロジェクト名", exact=True).fill("保存に失敗するプロジェクト")
+        self.page.locator("#project-dialog").get_by_role("button", name="保存する", exact=True).click()
+        expect(self.page.locator("#project-dialog")).to_be_visible()
+        expect(self.page.get_by_label("プロジェクト名", exact=True)).to_have_value("保存に失敗するプロジェクト")
+        self.assertEqual(self.stored(), original)
+        self.page.locator("#project-dialog").get_by_role("button", name="キャンセル", exact=True).click()
+        self.page.locator("#edit-project").click()
+        self.page.get_by_label("プロジェクト名", exact=True).fill("保存に失敗する名前")
+        self.page.locator("#project-dialog").get_by_role("button", name="保存する", exact=True).click()
+        self.assertEqual(self.stored(), original)
+        self.page.get_by_role("button", name="このプロジェクトを削除", exact=True).click()
+        self.page.locator("#project-dialog").get_by_role("button", name="削除する", exact=True).click()
+        expect(self.page.locator("#project-dialog")).to_be_visible()
+        self.assertEqual(self.stored(), original)
+
+    def test_invalid_project_data_is_not_overwritten(self):
+        project = {"id": "p", "name": "仕事", "createdAt": 100}
+        task = {"id": "a", "title": "A", "notes": "", "parentId": None, "completed": False,
+                "createdAt": 100, "priority": "none", "projectId": "p"}
+        cases = [
+            {"tasks": [task]},
+            {"projects": [project] * 2, "tasks": [task]},
+            {"projects": [project, {**project, "id": "q"}], "tasks": [task]},
+            {"projects": [{"id": f"p{i}", "name": f"プロジェクト{i}", "createdAt": 100} for i in range(6)], "tasks": []},
+            {"projects": [{**project, "name": "   "}], "tasks": []},
+            {"projects": [project], "tasks": [{**task, "projectId": "missing"}]},
+            {"projects": [project], "tasks": [{key: value for key, value in task.items() if key != "projectId"}]},
+            {"projects": [project], "tasks": [task, {**task, "id": "b", "parentId": "a", "projectId": None}]},
+        ]
+        for data in cases:
+            with self.subTest(data=data):
+                raw = json.dumps({"version": 4, **data})
+                self.page.evaluate("([key, raw]) => localStorage.setItem(key, raw)", [STORAGE_KEY, raw])
+                self.page.reload()
+                expect(self.page.locator("#storage-error")).to_contain_text("保存データを読み込めません")
+                self.add("上書きしない")
+                self.assertEqual(self.page.evaluate("key => localStorage.getItem(key)", STORAGE_KEY), raw)
+
+    def test_project_controls_fit_small_screens_with_long_names(self):
+        self.create_project("長" * 50)
+        self.create_project("仕事")
+        self.create_project("家事")
+        self.create_project("趣味")
+        self.create_project("旅行")
+        for width, height in ((320, 568), (430, 932), (932, 430)):
+            with self.subTest(width=width, height=height):
+                self.page.set_viewport_size({"width": width, "height": height})
+                self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
+                for selector in ("#project-views button", "#add-project", "#edit-project", "#add-project-select"):
+                    for control in self.page.locator(selector).all():
+                        bounds = control.bounding_box()
+                        self.assertGreaterEqual(bounds["height"], 44)
+                        self.assertGreaterEqual(bounds["width"], 44)
+                self.assertEqual(self.page.locator("#add-project-select").evaluate("el => getComputedStyle(el).fontSize"), "16px")
+        self.page.set_viewport_size({"width": 320, "height": 568})
+        self.page.locator("#edit-project").click()
+        self.assertEqual(self.page.locator("#project-name").evaluate("el => getComputedStyle(el).fontSize"), "16px")
+        self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
 
     def test_child_grandchild_notes_and_cancel(self):
         self.add("旅行")
@@ -539,7 +876,7 @@ class TaskAppTests(unittest.TestCase):
         expect(self.page.locator("#storage-error")).to_be_hidden()
 
     def test_corrupt_data_is_not_overwritten(self):
-        for raw in ("{invalid", json.dumps({"version": 4, "tasks": []}),
+        for raw in ("{invalid", json.dumps({"version": 5, "tasks": []}),
                     json.dumps({"version": 1, "tasks": [{"id": "invalid"}]})):
             with self.subTest(raw=raw):
                 self.page.evaluate("([key, raw]) => localStorage.setItem(key, raw)", [STORAGE_KEY, raw])

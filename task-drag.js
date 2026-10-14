@@ -123,7 +123,7 @@
       event.preventDefault();
       const tasks = getTasks();
       const source = tasks.find((task) => task.id === handle.closest(".task-item").dataset.id);
-      const siblings = tasks.filter((task) => task.parentId === source.parentId);
+      const siblings = tasks.filter((task) => task.parentId === source.parentId && task.projectId === source.projectId);
       const index = siblings.findIndex((task) => task.id === source.id);
       if (event.key === "ArrowUp" && index > 0) move(source.id, siblings[index - 1].id, "before");
       if (event.key === "ArrowDown" && index < siblings.length - 1) move(source.id, siblings[index + 1].id, "after");

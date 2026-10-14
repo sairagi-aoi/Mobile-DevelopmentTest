@@ -12,16 +12,24 @@
     "edit-form", "edit-title", "edit-error", "close-edit", "cancel-edit",
     "delete-task", "delete-confirmation", "cancel-delete", "confirm-delete", "announcement",
     "edit-heading", "edit-notes", "edit-parent", "root-drop-zone", "drag-status",
+    "project-views", "project-count", "project-limit-hint", "add-project", "edit-project",
+    "tasks-heading", "view-description", "add-project-select", "edit-project-select",
+    "project-dialog", "project-form", "project-heading", "project-name", "project-error",
+    "close-project", "project-cancel", "delete-project", "project-delete-confirmation",
+    "cancel-project-delete", "confirm-project-delete",
   ].map((id) => [id, document.getElementById(id)]));
 
   let tasks = [];
+  let projects = [];
+  let view = "inbox";
   let filter = "all";
   let editingId = null;
+  let editingProjectId = null;
   let returnFocusId = null;
   let announcementTimer;
   let dragController;
 
-  function readTasks() {
+  function readState() {
     return model.parse(localStorage.getItem(STORAGE_KEY));
   }
 
@@ -39,7 +47,7 @@
   function loadTasks() {
     dragController?.cancel();
     try {
-      tasks = readTasks();
+      ({ tasks, projects } = readState());
       showError("storage-error", "");
     } catch {
       showError("storage-error", "保存データを読み込めません。ブラウザーの保存設定・サイトデータを確認してください。元のデータは上書きしません。");
@@ -47,37 +55,97 @@
     render();
   }
 
-  function updateTasks(change, message, invalidMessage = "このタスクは別の画面で削除されました。編集を閉じてください。") {
+  function updateState(change, message, invalidMessage = "このタスクは別の画面で削除されました。編集を閉じてください。") {
     let latest;
     try {
       // 別タブで更新されたデータも、変更の直前に読み込む。
-      latest = readTasks();
+      latest = readState();
     } catch {
       showError("storage-error", "保存データを読み込めないため、変更できません。ブラウザーの保存設定・サイトデータを確認してください。");
       return false;
     }
     const next = change(latest);
     if (next === null) {
-      tasks = latest;
+      ({ tasks, projects } = latest);
       render();
-      showError(elements["edit-dialog"].open ? "edit-error" : "storage-error", invalidMessage);
+      showError(elements["project-dialog"].open ? "project-error" : elements["edit-dialog"].open ? "edit-error" : "storage-error", invalidMessage);
       announce(invalidMessage);
       return false;
     }
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 3, tasks: next }));
+      const normalized = model.parse(JSON.stringify({ version: 4, ...next }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 4, ...normalized }));
+      ({ tasks, projects } = normalized);
     } catch {
       showError("storage-error", "保存できませんでした。変更は反映していません。ブラウザーの保存設定や空き容量を確認して、もう一度お試しください。");
       return false;
     }
-    tasks = model.flatten(next).map(({ task }) => task);
     showError("storage-error", "");
     render();
     announce(message);
     return true;
   }
 
+  function updateTasks(change, message, invalidMessage) {
+    return updateState((latest) => {
+      const next = change(latest.tasks, latest.projects);
+      return next === null ? null : { projects: latest.projects, tasks: next };
+    }, message, invalidMessage);
+  }
+
+  function projectName(id) {
+    return id === null ? "Inbox" : projects.find((project) => project.id === id)?.name || "削除されたプロジェクト";
+  }
+
+  function projectOptions(select, value = select.value) {
+    const options = [new Option("Inbox", "")];
+    for (const project of projects) options.push(new Option(project.name, project.id));
+    // 別タブで削除された追加先を、黙ってInboxへ変更しない。
+    if (value && !projects.some((project) => project.id === value)) {
+      const missing = new Option("削除されたプロジェクト", value);
+      missing.disabled = true;
+      options.push(missing);
+    }
+    select.replaceChildren(...options);
+    select.value = value;
+  }
+
+  function renderProjects() {
+    if (!["inbox", "all"].includes(view) && !projects.some((project) => project.id === view)) view = "inbox";
+    const fragment = document.createDocumentFragment();
+    const views = [{ id: "inbox", name: "Inbox", projectId: null }, { id: "all", name: "すべてのタスク" },
+      ...projects.map((project) => ({ ...project, projectId: project.id }))];
+    for (const entry of views) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.view = entry.id;
+      button.setAttribute("aria-label", entry.name);
+      button.setAttribute("aria-pressed", String(view === entry.id));
+      const name = document.createElement("span");
+      name.className = "view-name";
+      name.textContent = entry.name;
+      const count = document.createElement("span");
+      count.className = "view-count";
+      count.setAttribute("aria-hidden", "true");
+      count.textContent = tasks.filter((task) => entry.id === "all" || task.projectId === entry.projectId).length;
+      button.append(name, count);
+      fragment.append(button);
+    }
+    elements["project-views"].replaceChildren(fragment);
+    elements["project-count"].textContent = `${projects.length} / ${model.maxProjects}`;
+    elements["add-project"].disabled = projects.length >= model.maxProjects;
+    elements["project-limit-hint"].textContent = projects.length >= model.maxProjects
+      ? "5個まで作成済みです。削除すると新しく作成できます。" : "プロジェクトは5個まで作成できます。Inboxは数に含みません。";
+    elements["tasks-heading"].textContent = view === "all" ? "すべてのタスク" : projectName(view === "inbox" ? null : view);
+    elements["view-description"].textContent = view === "all" ? "Inboxとすべてのプロジェクトのタスク。"
+      : view === "inbox" ? "プロジェクト未指定のタスクを、まずここに。" : "このプロジェクトのタスク。";
+    elements["edit-project"].hidden = ["inbox", "all"].includes(view);
+    projectOptions(elements["add-project-select"]);
+    if (elements["edit-dialog"].open) projectOptions(elements["edit-project-select"]);
+  }
+
   function render() {
+    renderProjects();
     const completed = tasks.filter((task) => task.completed).length;
     const remaining = tasks.length - completed;
     elements["remaining-count"].textContent = remaining;
@@ -88,7 +156,8 @@
       ? "小さな一歩から、はじめよう。"
       : remaining === 0 ? "すべて完了。おつかれさまでした。" : "ひとつ終わるたび、少し身軽に。";
 
-    const visible = tasks.filter((task) => filter === "all"
+    const scoped = tasks.filter((task) => view === "all" || task.projectId === (view === "inbox" ? null : view));
+    const visible = scoped.filter((task) => filter === "all"
       || (filter === "completed" ? task.completed : !task.completed));
     elements["task-count"].textContent = `${visible.length}件`;
     const shown = new Set(visible.map((task) => task.id));
@@ -119,7 +188,7 @@
     elements["empty-state"].hidden = visible.length > 0;
     elements["list-hint"].hidden = visible.length === 0;
 
-    const empty = tasks.length === 0
+    const empty = scoped.length === 0
       ? ["やることを、ひとつ。", "下の入力欄から追加してみましょう。\n小さなことでも、大丈夫。"]
       : filter === "completed"
         ? ["完了したタスクは、まだありません。", "終わったら、丸いチェックをタップ。"]
@@ -136,10 +205,14 @@
     node.className = "task-node";
     node.dataset.id = task.id;
     // 固定の構造のみHTMLで作り、ユーザーの入力はすべてtextContentで表示する。
-    node.innerHTML = '<div class="task-item"><label class="task-check-label"><input type="checkbox" class="task-checkbox"></label><button type="button" class="task-edit"><span class="parent-caption"></span><span class="priority-badge"><svg class="priority-flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m0 0h10l-3 3 3 3H3"/></svg><span class="sr-only">優先度：</span><span class="priority-text"></span></span><span class="task-title"></span><span class="context-label">親タスク</span><span class="note-preview"></span></button><button type="button" class="child-button"><span aria-hidden="true">＋</span></button><button type="button" class="drag-handle" aria-describedby="drag-help"><span aria-hidden="true">⠿</span></button></div>';
+    node.innerHTML = '<div class="task-item"><label class="task-check-label"><input type="checkbox" class="task-checkbox"></label><button type="button" class="task-edit"><span class="project-caption"></span><span class="parent-caption"></span><span class="priority-badge"><svg class="priority-flag" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 14V2m0 0h10l-3 3 3 3H3"/></svg><span class="sr-only">優先度：</span><span class="priority-text"></span></span><span class="task-title"></span><span class="context-label">親タスク</span><span class="note-preview"></span></button><button type="button" class="child-button"><span aria-hidden="true">＋</span></button><button type="button" class="drag-handle" aria-describedby="drag-help"><span aria-hidden="true">⠿</span></button></div>';
     const row = node.querySelector(".task-item");
     row.dataset.id = task.id;
     row.dataset.priority = task.priority;
+    row.dataset.projectId = task.projectId || "";
+    const projectCaption = node.querySelector(".project-caption");
+    projectCaption.textContent = projectName(task.projectId);
+    projectCaption.hidden = view !== "all";
     row.classList.toggle("is-completed", task.completed);
     const checkbox = node.querySelector(".task-checkbox");
     checkbox.checked = task.completed;
@@ -193,13 +266,8 @@
     elements["edit-title"].value = child ? "" : task.title;
     elements["edit-form"].elements.priority.value = child ? "none" : task.priority;
     elements["edit-notes"].value = child ? "" : task.notes;
-    const excluded = child ? new Set() : model.descendantIds(tasks, id);
-    const options = [new Option("親なし（独立したタスク）", "")];
-    for (const { task: parent, depth } of model.flatten(tasks)) {
-      if (!excluded.has(parent.id)) options.push(new Option(`${"—".repeat(Math.min(depth, 4))}${parent.title}`, parent.id));
-    }
-    elements["edit-parent"].replaceChildren(...options);
-    elements["edit-parent"].value = child ? id : task.parentId || "";
+    projectOptions(elements["edit-project-select"], task.projectId || "");
+    parentOptions(child ? id : task.parentId || "");
     elements["edit-title"].removeAttribute("aria-invalid");
     showError("edit-error", "");
     elements["delete-confirmation"].hidden = true;
@@ -207,6 +275,17 @@
     elements["edit-dialog"].showModal();
     elements["edit-title"].focus();
     elements["edit-title"].select();
+  }
+
+  function parentOptions(value = "") {
+    const projectId = elements["edit-project-select"].value || null;
+    const excluded = editingId === null ? new Set() : model.descendantIds(tasks, editingId);
+    const options = [new Option("親なし（独立したタスク）", "")];
+    for (const { task: parent, depth } of model.flatten(tasks)) {
+      if (parent.projectId === projectId && !excluded.has(parent.id)) options.push(new Option(`${"—".repeat(Math.min(depth, 4))}${parent.title}`, parent.id));
+    }
+    elements["edit-parent"].replaceChildren(...options);
+    elements["edit-parent"].value = value;
   }
 
   function newId() {
@@ -226,18 +305,20 @@
     const title = getTitle(elements["new-task"], "add-error");
     if (title === null) return;
     const id = newId();
-    const saved = updateTasks((latest) => [
-      { id, title, notes: "", parentId: null, priority: "none", completed: false, createdAt: Date.now() }, ...latest,
-    ], "タスクを追加しました。");
+    const projectId = elements["add-project-select"].value || null;
+    const saved = updateTasks((latest, latestProjects) => {
+      if (projectId !== null && !latestProjects.some((project) => project.id === projectId)) return null;
+      return [{ id, title, notes: "", parentId: null, priority: "none", projectId, completed: false, createdAt: Date.now() }, ...latest];
+    }, "タスクを追加しました。", "追加先のプロジェクトが別の画面で削除されました。追加先を選び直してください。");
     if (!saved) {
-      showError("add-error", "追加できませんでした。ブラウザーの保存設定や空き容量を確認してください。");
+      showError("add-error", "追加できませんでした。追加先のプロジェクト・ブラウザーの保存設定や空き容量を確認してください。");
       return;
     }
     elements["new-task"].value = "";
-    if (filter === "completed") {
-      filter = "all";
-      render();
-    }
+    elements["add-project-select"].value = "";
+    view = projectId === null ? "inbox" : projectId;
+    if (filter === "completed") filter = "all";
+    render();
     // キーボードを閉じて、追加したタスクを確認しやすくする。
     elements["new-task"].blur();
     focusTask(id);
@@ -262,7 +343,19 @@
   });
 
   document.querySelectorAll("[data-filter]").forEach((button) => {
-    button.addEventListener("click", () => { filter = button.dataset.filter; render(); });
+    button.addEventListener("click", () => { dragController?.cancel(); filter = button.dataset.filter; render(); });
+  });
+
+  elements["project-views"].addEventListener("click", (event) => {
+    const button = event.target.closest("[data-view]");
+    if (!button) return;
+    dragController?.cancel();
+    view = button.dataset.view;
+    render();
+  });
+  elements["edit-project-select"].addEventListener("change", () => {
+    parentOptions();
+    showError("edit-error", "");
   });
 
   elements["edit-form"].addEventListener("submit", (event) => {
@@ -277,26 +370,31 @@
     const notes = elements["edit-notes"].value;
     if (notes.length > 10000) { showError("edit-error", "メモは10,000文字以内で入力してください。"); return; }
     const parentId = elements["edit-parent"].value || null;
+    const projectId = elements["edit-project-select"].value || null;
     const id = editingId || newId();
     const creating = editingId === null;
-    const saved = updateTasks((latest) => {
-      if (parentId !== null && !latest.some((task) => task.id === parentId)) return null;
+    const saved = updateTasks((latest, latestProjects) => {
+      if (projectId !== null && !latestProjects.some((project) => project.id === projectId)) return null;
+      if (parentId !== null && !latest.some((task) => task.id === parentId && task.projectId === projectId)) return null;
       if (creating) {
-        const next = [{ id, title, notes, priority, parentId: null, completed: false, createdAt: Date.now() }, ...latest];
+        const next = [{ id, title, notes, priority, projectId, parentId: null, completed: false, createdAt: Date.now() }, ...latest];
         return parentId === null ? next : model.move(next, id, parentId, "child");
       }
       const current = latest.find((task) => task.id === id);
       if (!current) return null;
-      const next = latest.map((task) => task.id === id ? { ...task, title, notes, priority } : task);
-      return parentId === current.parentId ? next : model.move(next, id, parentId, parentId === null ? "root" : "child");
+      const transferred = model.setProject(latest, id, projectId);
+      const next = transferred.map((task) => task.id === id ? { ...task, title, notes, priority } : task);
+      return parentId === next.find((task) => task.id === id).parentId ? next : model.move(next, id, parentId, parentId === null ? "root" : "child");
     }, creating ? "子タスクを追加しました。" : "タスクを更新しました。",
-    "更新できません。タスクや親が別の画面で削除されていないか確認してください。自分自身や子孫を親にすることはできません。");
-    if (saved && creating) {
-      returnFocusId = id;
-      if (filter === "completed") { filter = "all"; render(); }
+    "更新できません。タスク・親・プロジェクトが別の画面で削除されていないか確認してください。自分自身や子孫を親にすることはできません。");
+    if (saved) {
+      if (creating) returnFocusId = id;
+      if (view !== "all") view = projectId === null ? "inbox" : projectId;
+      if (creating && filter === "completed") filter = "all";
+      render();
     }
     if (saved) elements["edit-dialog"].close();
-    else showError("edit-error", "保存できませんでした。保存設定や親子関係を確認してください。タスクや親が別の画面で削除された場合は更新できません。");
+    else showError("edit-error", "保存できませんでした。保存設定・親子関係・所属プロジェクトを確認してください。タスクや親、プロジェクトが別の画面で削除された場合は更新できません。");
   });
 
   ["close-edit", "cancel-edit"].forEach((id) => {
@@ -328,6 +426,98 @@
     if (saved) elements["edit-dialog"].close();
     else showError("edit-error", "削除できませんでした。ブラウザーの保存設定や空き容量を確認してください。");
   });
+
+  function openProject(id = null) {
+    const project = projects.find((item) => item.id === id);
+    if (id !== null && !project) return;
+    if (id === null && projects.length >= model.maxProjects) return;
+    editingProjectId = id;
+    elements["project-heading"].textContent = project ? "プロジェクトを編集" : "プロジェクトを作成";
+    elements["project-name"].value = project?.name || "";
+    elements["project-name"].removeAttribute("aria-invalid");
+    elements["delete-project"].hidden = !project;
+    elements["project-delete-confirmation"].hidden = true;
+    showError("project-error", "");
+    elements["project-dialog"].showModal();
+    elements["project-name"].focus();
+    elements["project-name"].select();
+  }
+
+  elements["add-project"].addEventListener("click", () => openProject());
+  elements["edit-project"].addEventListener("click", () => openProject(view));
+  elements["project-form"].addEventListener("submit", (event) => {
+    event.preventDefault();
+    const name = elements["project-name"].value.trim();
+    if (!name || name.length > 50) {
+      showError("project-error", "プロジェクト名は1〜50文字で入力してください。");
+      elements["project-name"].setAttribute("aria-invalid", "true");
+      elements["project-name"].focus();
+      return;
+    }
+    const creating = editingProjectId === null;
+    const id = editingProjectId || newId();
+    const duplicate = (list) => list.some((project) => project.id !== id && project.name.toLowerCase() === name.toLowerCase());
+    if (duplicate(projects)) {
+      showError("project-error", "同じ名前のプロジェクトがあります。別の名前を入力してください。");
+      return;
+    }
+    const saved = updateState((latest) => {
+      if (duplicate(latest.projects) || (creating && latest.projects.length >= model.maxProjects)) return null;
+      if (!creating && !latest.projects.some((project) => project.id === id)) return null;
+      const nextProjects = creating ? [...latest.projects, { id, name, createdAt: Date.now() }]
+        : latest.projects.map((project) => project.id === id ? { ...project, name } : project);
+      return { ...latest, projects: nextProjects };
+    }, creating ? "プロジェクトを作成しました。" : "プロジェクト名を変更しました。",
+    "保存できません。プロジェクトは5個までです。同じ名前や、別の画面で削除されたプロジェクトも確認してください。");
+    if (saved) {
+      view = id;
+      render();
+      elements["project-dialog"].close();
+    } else if (elements["project-error"].hidden) {
+      showError("project-error", "保存できませんでした。ブラウザーの保存設定や空き容量を確認してください。");
+    }
+  });
+  ["close-project", "project-cancel"].forEach((id) => {
+    elements[id].addEventListener("click", () => elements["project-dialog"].close());
+  });
+  elements["project-dialog"].addEventListener("close", () => {
+    editingProjectId = null;
+    const target = !elements["edit-project"].hidden ? elements["edit-project"]
+      : elements["add-project"].disabled ? elements["project-views"].querySelector('[data-view="inbox"]') : elements["add-project"];
+    target.focus();
+  });
+  elements["project-dialog"].addEventListener("click", (event) => {
+    if (event.target !== elements["project-dialog"]) return;
+    const bounds = elements["project-dialog"].getBoundingClientRect();
+    if (event.clientX < bounds.left || event.clientX > bounds.right
+      || event.clientY < bounds.top || event.clientY > bounds.bottom) elements["project-dialog"].close();
+  });
+  elements["delete-project"].addEventListener("click", () => {
+    elements["delete-project"].hidden = true;
+    elements["project-delete-confirmation"].hidden = false;
+    elements["cancel-project-delete"].focus();
+  });
+  elements["cancel-project-delete"].addEventListener("click", () => {
+    elements["delete-project"].hidden = false;
+    elements["project-delete-confirmation"].hidden = true;
+    elements["delete-project"].focus();
+  });
+  elements["confirm-project-delete"].addEventListener("click", () => {
+    const saved = updateState((latest) => model.removeProject(latest, editingProjectId),
+      "プロジェクトを削除し、タスクをInboxへ戻しました。", "このプロジェクトは別の画面で削除されました。");
+    if (saved) {
+      view = "inbox";
+      render();
+      elements["project-dialog"].close();
+    } else {
+      showError("project-error", "削除できませんでした。ブラウザーの保存設定や、別の画面での変更を確認してください。");
+    }
+  });
+  elements["project-name"].addEventListener("input", () => {
+    elements["project-name"].removeAttribute("aria-invalid");
+    showError("project-error", "");
+  });
+  elements["add-project-select"].addEventListener("change", () => showError("add-error", ""));
 
   ["new-task", "edit-title", "edit-notes", "edit-parent"].forEach((id) => {
     elements[id].addEventListener("input", () => {
